@@ -1,0 +1,158 @@
+<div class="app-shell" [class.dark-theme]="darkTheme">
+  <header class="topbar">
+    <a class="brand" href="#" aria-label="Telemetry Monitor home">
+      <span class="brand-mark"><span></span><span></span><span></span></span>
+      <span class="brand-name">NEXUS<span> / </span>MONITOR</span>
+    </a>
+    <div class="topbar-right">
+      <div class="connection-pill" [class.offline]="!connected">
+        <span class="connection-dot"></span>
+        {{ connected ? 'System online' : loading ? 'Connecting' : 'Connection lost' }}
+      </div>
+      <button class="theme-button" type="button" (click)="toggleTheme()" [attr.aria-label]="darkTheme ? 'Switch to light theme' : 'Switch to dark theme'">
+        <span>{{ darkTheme ? '☼' : '◐' }}</span><span>{{ darkTheme ? 'Light mode' : 'Dark mode' }}</span>
+      </button>
+      <div class="avatar" title="Operator">OP</div>
+    </div>
+  </header>
+
+  <main class="dashboard">
+    <section class="page-heading">
+      <div>
+        <div class="eyebrow"><span class="eyebrow-line"></span> CONTROL ROOM <span class="eyebrow-divider">/</span> LIVE TELEMETRY</div>
+        <h1>System overview</h1>
+        <p class="page-subtitle">Real-time performance and health of your embedded controller.</p>
+      </div>
+      <div class="heading-actions">
+        <div class="updated-box">
+          <span class="updated-icon">◷</span>
+          <span><small>LAST UPDATED</small><strong>{{ lastUpdated ? (lastUpdated | date:'HH:mm:ss') : 'Waiting for data' }}</strong></span>
+        </div>
+        <div class="export-actions">
+          <button class="button button-quiet" type="button" (click)="exportCsv()" [disabled]="!collectedCount" title="Export collected telemetry as CSV"><span class="download-icon">↓</span> CSV</button>
+          <button class="button button-primary" type="button" (click)="exportExcel()" [disabled]="!collectedCount"><span class="download-icon">↓</span> Export Excel</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="summary-strip" aria-label="Dashboard status">
+      <div class="summary-item">
+        <span class="summary-symbol live-symbol">⌁</span>
+        <span><small>MONITORING</small><strong>Embedded controller</strong></span>
+      </div>
+      <div class="summary-separator"></div>
+      <div class="summary-item">
+        <span class="summary-symbol">◷</span>
+        <span><small>UPDATE INTERVAL</small><strong>1 second</strong></span>
+      </div>
+      <div class="summary-separator"></div>
+      <div class="summary-item">
+        <span class="summary-symbol sample-symbol">▥</span>
+        <span><small>HISTORY WINDOW</small><strong>Latest 100 samples</strong></span>
+      </div>
+      <div class="summary-right"><span class="pulse-dot"></span> LIVE FEED</div>
+    </section>
+
+    <div *ngIf="errorMessage" class="error-banner" role="alert">
+      <span class="error-symbol">!</span>
+      <span><strong>Telemetry unavailable</strong><small>{{ errorMessage }}</small></span>
+      <span class="error-retry">Retrying automatically</span>
+    </div>
+    <div *ngIf="loading" class="loading-banner" role="status">
+      <span class="loading-spinner"></span> Establishing connection to telemetry service…
+    </div>
+
+    <section class="metric-grid" aria-label="Live telemetry metrics">
+      <article class="metric-card" *ngFor="let metric of metrics" [class.warning-card]="statusFor(metric.id) === 'Warning'" [class.critical-card]="statusFor(metric.id) === 'Critical'">
+        <div class="card-heading">
+          <div class="metric-title">
+            <span class="metric-icon" [style.--metric-color]="metric.color">{{ metric.icon }}</span>
+            <span><h2>{{ metric.label }}</h2><small>{{ metric.description }}</small></span>
+          </div>
+          <span class="status-badge" [ngClass]="statusFor(metric.id).toLowerCase()">
+            <span class="status-dot"></span>{{ statusFor(metric.id) }}
+          </span>
+        </div>
+
+        <div class="reading-row">
+          <div class="reading-value">
+            <strong>{{ formattedValue(metric.id) }}</strong>
+            <span class="reading-unit">{{ selectedUnits[metric.id] }}</span>
+          </div>
+          <label class="unit-picker">
+            <span class="sr-only">Display unit for {{ metric.label }}</span>
+            <select [value]="selectedUnits[metric.id]" (change)="setUnit(metric.id, $any($event.target).value)">
+              <option *ngFor="let unit of metric.units" [value]="unit">{{ unit }}</option>
+            </select>
+            <span class="select-chevron">⌄</span>
+          </label>
+        </div>
+
+        <div class="gauge-row">
+          <svg class="gauge" viewBox="0 0 112 112" role="img" [attr.aria-label]="metric.label + ' gauge: ' + formattedValue(metric.id) + ' ' + selectedUnits[metric.id]">
+            <circle class="gauge-track" cx="56" cy="56" r="45" fill="none" stroke-width="8"></circle>
+            <circle class="gauge-progress" [attr.stroke]="metric.color" cx="56" cy="56" r="45" fill="none" stroke-width="8" stroke-linecap="round"
+              [attr.stroke-dasharray]="circumference" [attr.stroke-dashoffset]="gaugeOffset(metric.id)" transform="rotate(-90 56 56)"></circle>
+            <text class="gauge-percent" x="56" y="54" text-anchor="middle">{{ (displayedValue(metric.id) / displayGaugeMax(metric.id) * 100) | number:'1.0-0' }}%</text>
+            <text class="gauge-caption" x="56" y="70" text-anchor="middle">OF RANGE</text>
+          </svg>
+          <div class="gauge-info">
+            <span class="range-label">OPERATING RANGE</span>
+            <strong>0 – {{ displayGaugeMax(metric.id) | number:'1.0-1' }} <span>{{ selectedUnits[metric.id] }}</span></strong>
+            <div class="gauge-health"><span class="health-check">✓</span> {{ statusFor(metric.id) === 'Normal' ? 'Within normal range' : 'Outside normal range' }}</div>
+            <div class="sample-time"><span>●</span> Updated {{ lastUpdated ? (lastUpdated | date:'HH:mm:ss') : '—' }}</div>
+          </div>
+        </div>
+
+        <div class="chart-divider"></div>
+        <div class="chart-heading">
+          <div><h3>Live trend</h3><small>Last {{ chartPoints(metric.id).length }} readings</small></div>
+          <div class="chart-controls" aria-label="Chart controls">
+            <button type="button" (click)="zoomIn()" aria-label="Zoom in" title="Zoom in">+</button>
+            <button type="button" (click)="zoomOut()" aria-label="Zoom out" title="Zoom out">−</button>
+            <button type="button" (click)="resetChart()" aria-label="Reset zoom and pan" title="Reset view">↺</button>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <svg class="trend-chart" viewBox="0 0 760 190" preserveAspectRatio="none" role="img"
+            (pointermove)="onChartMove($event, metric.id)" (pointerleave)="onChartLeave()" (pointerdown)="onChartPointerDown($event)" (pointerup)="onChartPointerUp()" [attr.aria-label]="metric.label + ' live trend chart. Drag to pan.'">
+            <defs>
+              <linearGradient [attr.id]="'fill-' + metric.id" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0%" [attr.stop-color]="metric.color" stop-opacity=".20"></stop>
+                <stop offset="100%" [attr.stop-color]="metric.color" stop-opacity="0"></stop>
+              </linearGradient>
+            </defs>
+            <g *ngFor="let tick of chartTicks(metric.id)">
+              <line class="grid-line" [attr.x1]="chartPadding.left" [attr.x2]="chartWidth - chartPadding.right" [attr.y1]="chartY(metric.id, tick)" [attr.y2]="chartY(metric.id, tick)"></line>
+              <text class="axis-label" x="37" [attr.y]="chartY(metric.id, tick) + 3" text-anchor="end">{{ chartLabel(metric.id, tick) }}</text>
+            </g>
+            <text class="axis-unit" x="10" y="12">{{ selectedUnits[metric.id] }}</text>
+            <path *ngIf="chartPoints(metric.id).length > 1" [attr.d]="chartArea(metric.id)" [attr.fill]="'url(#fill-' + metric.id + ')'"></path>
+            <path class="trend-line" [attr.stroke]="metric.color" [attr.d]="chartPath(metric.id)"></path>
+            <g *ngIf="chartPoints(metric.id).length && panOffset === 0">
+              <circle class="latest-halo" [attr.cx]="chartWidth - chartPadding.right" [attr.cy]="chartY(metric.id, displayedValue(metric.id))" r="7" [attr.fill]="metric.color"></circle>
+              <circle class="latest-point" [attr.cx]="chartWidth - chartPadding.right" [attr.cy]="chartY(metric.id, displayedValue(metric.id))" r="3" [attr.fill]="metric.color"></circle>
+              <text class="axis-label time-label" [attr.x]="chartPadding.left" y="182">{{ chartTimeLabel(metric.id, 0) }}</text>
+              <text class="axis-label time-label" [attr.x]="chartWidth - chartPadding.right" y="182" text-anchor="end">{{ chartTimeLabel(metric.id, chartPoints(metric.id).length - 1) }}</text>
+            </g>
+            <g *ngIf="tooltip?.metric === metric.id">
+              <line class="crosshair" [attr.x1]="tooltip!.x" [attr.x2]="tooltip!.x" [attr.y1]="chartPadding.top" [attr.y2]="chartHeight - chartPadding.bottom"></line>
+              <circle [attr.cx]="tooltip!.x" [attr.cy]="tooltip!.y" r="4" [attr.fill]="metric.color" class="tooltip-point"></circle>
+            </g>
+          </svg>
+          <div class="chart-tooltip" *ngIf="tooltip?.metric === metric.id" [style.left.%]="tooltip!.x / chartWidth * 100" [style.top.px]="tooltip!.y">
+            <strong>{{ formattedValue(metric.id, tooltip!.value) }} {{ selectedUnits[metric.id] }}</strong>
+            <span>{{ tooltip!.time }}</span>
+          </div>
+          <div *ngIf="!chartPoints(metric.id).length" class="chart-empty">Waiting for telemetry samples…</div>
+        </div>
+        <div class="chart-footer"><span><i [style.background]="metric.color"></i> {{ metric.label }}</span><span>Drag to pan <b>·</b> Scroll buttons to zoom</span></div>
+      </article>
+    </section>
+
+    <footer class="dashboard-footer">
+      <span><span class="footer-mark">✳</span> NEXUS <b>MONITOR</b></span>
+      <span>Embedded systems observability <b>·</b> Session samples: {{ collectedCount }}</span>
+    </footer>
+  </main>
+</div>
