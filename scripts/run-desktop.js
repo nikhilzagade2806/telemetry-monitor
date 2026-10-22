@@ -7,13 +7,25 @@ const nodeCommand = process.execPath;
 const children = [];
 let stopping = false;
 
-function start(command, args, name) {
+function start(command, args, name, restartOnExit = false) {
   const child = spawn(command, args, { cwd: root, stdio: 'inherit' });
   children.push(child);
-  child.on('exit', (code) => {
-    if (!stopping && code && code !== 0) {
-      console.error(`${name} exited with code ${code}`);
-      stop(code);
+  child.on('error', (error) => {
+    if (!stopping) {
+      console.error(`Unable to start ${name}: ${error.message}`);
+      stop(1);
+    }
+  });
+  child.on('exit', (code, signal) => {
+    if (stopping) return;
+    if (restartOnExit) {
+      console.error(`${name} exited unexpectedly (code ${code ?? 'unknown'}, signal ${signal ?? 'none'}); restarting in 1 second`);
+      setTimeout(() => {
+        if (!stopping) start(command, args, name, true);
+      }, 1000);
+    } else if (code !== 0 || signal) {
+      console.error(`${name} exited (code ${code ?? 'unknown'}, signal ${signal ?? 'none'})`);
+      stop(code || 1);
     }
   });
   return child;
@@ -51,7 +63,7 @@ process.on('SIGINT', () => stop());
 process.on('SIGTERM', () => stop());
 
 async function main() {
-  start(nodeCommand, [path.join(root, 'backend', 'server.js')], 'Telemetry API');
+  start(nodeCommand, [path.join(root, 'backend', 'server.js')], 'Telemetry API', true);
   start(nodeCommand, [path.join(root, 'node_modules', '@angular', 'cli', 'bin', 'ng.js'), 'serve', '--host', '127.0.0.1'], 'Angular dev server');
   await Promise.all([waitFor('http://127.0.0.1:3000/api/dashboard'), waitFor('http://127.0.0.1:4200')]);
   const electronPath = require('electron');
