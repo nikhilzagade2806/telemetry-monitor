@@ -7,7 +7,7 @@ function createWindow() {
     minWidth: 820,
     minHeight: 680,
     backgroundColor: '#f5f7fb',
-    title: 'Nexus Monitor',
+    title: 'Monitor',
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
